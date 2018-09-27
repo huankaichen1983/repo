@@ -49,7 +49,7 @@ public class CFGContentHandler extends ComponentSupport implements Handler{
             case PUT: {
                 Payload content = context.getRequest().getPayload();
 
-                storage.put(name, content);
+                storage.put(name, context.getRequest().getAttributes(), content);
                 return HttpResponses.created();
             }
 

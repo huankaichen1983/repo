@@ -9,18 +9,14 @@ import org.sonatype.nexus.repository.FacetSupport;
 import org.sonatype.nexus.repository.Repository;
 import org.sonatype.nexus.repository.cache.CacheInfo;
 import org.sonatype.nexus.repository.config.Configuration;
-import org.sonatype.nexus.repository.storage.Asset;
-import org.sonatype.nexus.repository.storage.AssetBlob;
-import org.sonatype.nexus.repository.storage.Bucket;
-import org.sonatype.nexus.repository.storage.Component;
-import org.sonatype.nexus.repository.storage.StorageFacet;
-import org.sonatype.nexus.repository.storage.StorageTx;
-import org.sonatype.nexus.repository.storage.TempBlob;
+import org.sonatype.nexus.repository.manager.internal.RepositoryImpl;
+import org.sonatype.nexus.repository.storage.*;
 import org.sonatype.nexus.repository.transaction.TransactionalDeleteBlob;
 import org.sonatype.nexus.repository.transaction.TransactionalStoreBlob;
 import org.sonatype.nexus.repository.transaction.TransactionalStoreMetadata;
 import org.sonatype.nexus.repository.transaction.TransactionalTouchBlob;
 import org.sonatype.nexus.repository.transaction.TransactionalTouchMetadata;
+import org.sonatype.nexus.repository.upload.ComponentUpload;
 import org.sonatype.nexus.repository.view.Content;
 import org.sonatype.nexus.repository.view.Payload;
 import org.sonatype.nexus.repository.view.payloads.BlobPayload;
@@ -31,7 +27,10 @@ import javax.inject.Named;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
+import static com.google.common.collect.Lists.newArrayList;
+import static java.lang.String.join;
 import static org.sonatype.nexus.common.hash.HashAlgorithm.MD5;
 import static org.sonatype.nexus.common.hash.HashAlgorithm.SHA1;
 import static org.sonatype.nexus.repository.storage.MetadataNodeEntityAdapter.P_NAME;
@@ -64,15 +63,20 @@ public class CFGContentFacetImpl extends FacetSupport implements CFGContentFacet
     }
 
     @Override
-    public Content put(final String path, final Payload content) throws IOException{
+    public Content put(final String path, final AttributesMap attributesMap, final Payload content) throws IOException{
         StorageFacet storageFacet = facet(StorageFacet.class);
-        try (TempBlob tempBlob = storageFacet.createTempBlob(content, hashAlgorithms)) {
-            return doPutContent(path, tempBlob, content);
+        if(content==null){
+            createArtefact(path);
+            return null;
+        } else {
+            try (TempBlob tempBlob = storageFacet.createTempBlob(content, hashAlgorithms)) {
+                return doPutContent(path, tempBlob, attributesMap, content);
+            }
         }
     }
 
     @TransactionalStoreBlob
-    protected Content doPutContent(final String path, final TempBlob tempBlob, final Payload payload)
+    protected Content doPutContent(final String path, final TempBlob tempBlob, final AttributesMap attributesMap, final Payload payload)
             throws IOException
     {
         StorageTx tx = UnitOfWork.currentTx();
@@ -84,6 +88,11 @@ public class CFGContentFacetImpl extends FacetSupport implements CFGContentFacet
             contentAttributes = ((Content) payload).getAttributes();
         }
         Content.applyToAsset(asset, Content.maintainLastModified(asset, contentAttributes));
+        asset.attributes().child("cfg").set("groupId",attributesMap.get("groupId"));
+        asset.attributes().child("cfg").set("engineId",attributesMap.get("engineId"));
+        asset.attributes().child("cfg").set("projectId",attributesMap.get("projectId"));
+        asset.attributes().child("cfg").set("version",attributesMap.get("version"));
+
         AssetBlob assetBlob = tx.setBlob(
                 asset,
                 path,
@@ -166,6 +175,20 @@ public class CFGContentFacetImpl extends FacetSupport implements CFGContentFacet
         tx.saveAsset(asset);
     }
 
+    @TransactionalStoreMetadata
+    public void createArtefact(final String componment_name){
+        final StorageTx tx = UnitOfWork.currentTx();
+        final Bucket bucket = tx.findBucket(getRepository());
+        Component component = tx.findComponentWithProperty(P_NAME,componment_name,bucket);
+        if (component == null){
+            // CREATE
+            component = tx.createComponent(bucket,getRepository().getFormat())
+                    .group(componment_name);
+            tx.saveComponent(component);
+        }
+        UnitOfWork.end();
+    }
+
     private Component findComponent(StorageTx tx, Bucket bucket, String path) {
         return tx.findComponentWithProperty(P_NAME, path, bucket);
     }
@@ -179,4 +202,5 @@ public class CFGContentFacetImpl extends FacetSupport implements CFGContentFacet
         Content.extractFromAsset(asset, hashAlgorithms, content.getAttributes());
         return content;
     }
+
 }

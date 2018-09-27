@@ -2,6 +2,7 @@ package eu.cloudifacturing.www.repo.format;
 
 import com.google.common.collect.Lists;
 import eu.cloudifacturing.www.repo.format.internal.CFGFormat;
+import org.sonatype.nexus.common.collect.AttributesMap;
 import org.sonatype.nexus.repository.Repository;
 import org.sonatype.nexus.repository.rest.UploadDefinitionExtension;
 import org.sonatype.nexus.repository.security.ContentPermissionChecker;
@@ -10,6 +11,8 @@ import org.sonatype.nexus.repository.storage.StorageFacet;
 import org.sonatype.nexus.repository.transaction.TransactionalStoreBlob;
 import org.sonatype.nexus.repository.upload.*;
 import org.sonatype.nexus.repository.view.Content;
+import org.sonatype.nexus.transaction.UnitOfWork;
+import sun.font.AttributeMap;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -19,6 +22,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
+import static com.google.common.collect.Lists.newArrayList;
+import static java.lang.String.join;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 
@@ -36,11 +41,15 @@ public class CFGUploadHandler extends UploadHandlerSupport {
 
     private static final String ENGINE_ID_HELP_TEXT = "The unique identification for the execution engine, e.g. cloudflow, cloudbroker, flowster";
 
-    private static final String ARTIFACT_ID = "artifactId";
+    private static final String PROJECT_ID = "projectId";
 
-    private static final String ARTIFACT_ID_HELP_TEXT = "the unique identification for the artefact";
+    private static final String PROJECT_ID_HELP_TEXT = "the unique identification for the project";
 
     private static final String VERSION = "version";
+
+    private static final String METADATA = "metadata";
+
+    private static final String METADATA_HELP_TEXT = "json string of metadata, key,value";
 
     /**
      * The upload path for the artefact will be /group_id/engine_Id/artefact_id/version/filename
@@ -72,10 +81,17 @@ public class CFGUploadHandler extends UploadHandlerSupport {
     public UploadResponse handle(final Repository repository, final ComponentUpload upload) throws IOException {
         CFGContentFacet facet = repository.facet(CFGContentFacet.class);
 
-        String basePath = upload.getFields().get(DIRECTORY).trim();
+        String basePath = createBasePath(upload.getFields().get(GROUP_ID).trim(), upload.getFields().get(ENGINE_ID).trim(), upload.getFields().get(PROJECT_ID).trim(), upload.getFields().get(VERSION).trim());
+
+        AttributesMap attributes = new AttributesMap();
+        attributes.set(GROUP_ID,upload.getFields().get(GROUP_ID).trim());
+        attributes.set(ENGINE_ID,upload.getFields().get(ENGINE_ID).trim());
+        attributes.set(PROJECT_ID,upload.getFields().get(PROJECT_ID).trim());
+        attributes.set(VERSION,upload.getFields().get(VERSION).trim());
 
         return TransactionalStoreBlob.operation.withDb(repository.facet(StorageFacet.class).txSupplier())
                 .throwing(IOException.class).call(() -> {
+
 
                     //Data holders for populating the UploadResponse
                     List<Content> responseContents = Lists.newArrayList();
@@ -86,7 +102,7 @@ public class CFGUploadHandler extends UploadHandlerSupport {
 
                         ensurePermitted(repository.getName(), CFGFormat.NAME, path, emptyMap());
 
-                        Content content = facet.put(path, asset.getPayload());
+                        Content content = facet.put(path, attributes,asset.getPayload());
 
                         responseContents.add(content);
                         assetPaths.add(path);
@@ -102,11 +118,13 @@ public class CFGUploadHandler extends UploadHandlerSupport {
             List<UploadFieldDefinition> componentFields = Arrays.asList(
                     new UploadFieldDefinition(GROUP_ID, GROUP_ID_HELP_TEXT, false, UploadFieldDefinition.Type.STRING, FIELD_GROUP_NAME),
                     new UploadFieldDefinition(ENGINE_ID, ENGINE_ID_HELP_TEXT, false, UploadFieldDefinition.Type.STRING, FIELD_GROUP_NAME),
-                    new UploadFieldDefinition(ARTIFACT_ID, ARTIFACT_ID_HELP_TEXT,false, UploadFieldDefinition.Type.STRING, FIELD_GROUP_NAME),
+                    new UploadFieldDefinition(PROJECT_ID, PROJECT_ID_HELP_TEXT,false, UploadFieldDefinition.Type.STRING, FIELD_GROUP_NAME),
                     new UploadFieldDefinition(VERSION, false, UploadFieldDefinition.Type.STRING, FIELD_GROUP_NAME));
+            List<UploadFieldDefinition> assetFields = Arrays.asList(
+                    new UploadFieldDefinition(FILENAME, false, UploadFieldDefinition.Type.STRING));
             definition = getDefinition(CFGFormat.NAME, true,
                     componentFields,
-                    singletonList(new UploadFieldDefinition(FILENAME, false, UploadFieldDefinition.Type.STRING)),
+                    assetFields,
                     new UploadRegexMap("(.*)", FILENAME));
         }
         return definition;
@@ -134,5 +152,11 @@ public class CFGUploadHandler extends UploadHandlerSupport {
         }
 
         return result;
+    }
+
+    private String createBasePath(final String groupId, final String engineId, final String artifactId, final String version) {
+        List<String> parts = newArrayList(groupId.split("\\."));
+        parts.addAll(Arrays.asList(engineId, artifactId, version));
+        return join("/", parts);
     }
 }

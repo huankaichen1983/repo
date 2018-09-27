@@ -1,9 +1,11 @@
 package eu.cloudifacturing.www.repo.format;
 
+import org.sonatype.nexus.common.collect.AttributesMap;
 import org.sonatype.nexus.repository.Facet;
 import org.sonatype.nexus.repository.Repository;
 import org.sonatype.nexus.repository.cache.CacheInfo;
 import org.sonatype.nexus.repository.storage.Asset;
+import org.sonatype.nexus.repository.upload.ComponentUpload;
 import org.sonatype.nexus.repository.view.Content;
 import org.sonatype.nexus.repository.view.Payload;
 
@@ -15,7 +17,7 @@ public interface CFGContentFacet extends Facet {
     @Nullable
     Content get(String path) throws IOException;
 
-    Content put(String path, Payload content) throws IOException;
+    Content put(String path, AttributesMap attributesMap, Payload content) throws IOException;
 
     boolean delete(String path) throws IOException;
 
